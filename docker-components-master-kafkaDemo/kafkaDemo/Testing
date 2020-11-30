@@ -1,0 +1,93 @@
+import datetime
+import os 
+from os.path import isfile, join
+import numpy as np
+import cv2
+from flask import Flask, Response, render_template
+from kafka import KafkaConsumer
+import subprocess
+
+# Fire up the Kafka Consumer
+topic = "distributed-video1"
+
+consumer = KafkaConsumer(
+    topic, 
+    bootstrap_servers=['localhost:9092'])
+
+
+# Set the consumer in a Flask App
+app = Flask(__name__)
+
+@app.route('/video', methods=['GET'])
+def video():
+    """
+    This is the heart of our video display. Notice we set the mimetype to 
+    multipart/x-mixed-replace. This tells Flask to replace any old images with 
+    new values streaming through the pipeline.
+    """
+    cmd = 'docker run -i --rm jrottenberg/ffmpeg:3.4-alpine'
+    p = subprocess.Popen('cat F1.mp4 | ' + cmd, shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+
+    def generate():
+        for data in iter(p.stdout.readline, b''):
+            yield data
+    return Response(generate(), mimetype='video/mp4')
+
+    #return Response(
+    #    get_video_stream(), 
+    #    #get_Video_formated(),
+    #    mimetype='multipart/x-mixed-replace; boundary=frame')
+
+def get_video_stream():
+    """
+    Here is where we recieve streamed images from the Kafka Server and convert 
+    them to a Flask-readable format.
+    """
+    for msg in consumer:
+        yield (b'--frame\r\n'
+               b'Content-Type: video/mp4\r\n\r\n' + msg.value + b'\r\n\r\n')
+
+
+
+
+
+def get_Video_formated():
+    pathIn= '.'
+    pathOut = 'video.avi'
+    fps = 0.5
+    frame_array = []
+    files = [f for f in os.listdir(pathIn) if isfile(join(pathIn, f))]
+    #for sorting the file names properly
+    files.sort(key = lambda x: x[5:-4])
+    files.sort()
+    frame_array = []
+    files = [f for f in os.listdir(pathIn) if isfile(join(pathIn, f))]
+    #for sorting the file names properly
+    files.sort(key = lambda x: x[5:-4])
+
+    for msg in consumer:
+        filename='F1 cockpit cam- See the driver at work [Mpgun.com].mp4'
+        #reading each files
+        print(msg.value)
+        #img = cv2.imread(msg.value)
+        nparr = np.fromstring(msg.value, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        print(img)
+        height, width, layers = img.shape 
+        size = (width,height)
+        #inserting the frames into an image array
+        frame_array.append(img)
+        yield (b'--frame\r\n'
+            b'Content-Type: image/jpg\r\n\r\n' + img + b'\r\n\r\n')
+
+    out = cv2.VideoWriter(pathOut,cv2.VideoWriter_fourcc(*'DIVX'), fps, size)
+
+    for i in range(len(frame_array)):
+        # writing to a image array
+        out.write(frame_array[i])
+        yield (b'--frame\r\n'
+            b'Content-Type: video/mp4\r\n\r\n' + msg.value + b'\r\n\r\n')
+    out.release()
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', debug=True)

@@ -1,0 +1,10 @@
+python avro_partition_producer.py --schema_registry_host=eagle5.di.uoa.gr \
+                        --schema=schemas/attitude.avsc \
+                        --topic=di_Attitude \
+			--partition=1 \
+                        --frequency=0.2
+
+python avro_partition_consumer.py --schema_registry_host=eagle5.di.uoa.gr \
+                        --topic=di_Attitude \
+			--partition=1
+
